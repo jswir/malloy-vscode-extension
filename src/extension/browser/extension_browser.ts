@@ -37,12 +37,18 @@ import {
 import {editConnectionsCommand} from './commands/edit_connections';
 import {fileHandler} from '../utils/files';
 import {WorkerConnectionBrowser} from './worker_connection_browser';
+import {createWorkspaceWatcher} from '../workspace_indexer';
+
 let client: LanguageClient;
 
 export async function activate(context: vscode.ExtensionContext) {
   await setupLanguageServer(context);
   const worker = new WorkerConnectionBrowser(context, client, fileHandler);
   await setupSubscriptions(context, worker, client);
+
+  // Set up file watcher to trigger diagnostic refresh on file changes
+  // LSP 3.17 pull diagnostics handles the initial workspace scan
+  createWorkspaceWatcher(context, client);
 
   const connectionsTree = new ConnectionsProvider(
     context,
@@ -95,6 +101,11 @@ async function setupLanguageServer(
       // restarted again(https://github.com/microsoft/vscode-languageserver-node/blob/1320922f95ef182df2cf76b7c96b1a2d3ba14c2a/client/src/common/client.ts#L438).
       // We can be overly confident and set it to a large number. For now, set the max restart count to Number.MAX_SAFE_INTEGER.
       maxRestartCount: Number.MAX_SAFE_INTEGER,
+    },
+    // LSP 3.17 pull-based diagnostics: onChange triggers document diagnostics on edit
+    diagnosticPullOptions: {
+      onChange: true,
+      onSave: true,
     },
   };
 

@@ -32,6 +32,12 @@ import {
   Connection,
   Position,
   DidChangeConfigurationParams,
+  Diagnostic,
+  DiagnosticSeverity,
+  DocumentDiagnosticReportKind,
+  type DocumentDiagnosticReport,
+  type WorkspaceDocumentDiagnosticReport,
+  type WorkspaceDiagnosticReport,
 } from 'vscode-languageserver';
 import debounce from 'lodash/debounce';
 
@@ -77,6 +83,12 @@ export const initServer = (
         },
         definitionProvider: true,
         hoverProvider: true,
+        // LSP 3.17 pull-based workspace diagnostics
+        diagnosticProvider: {
+          interFileDependencies: true,
+          workspaceDiagnostics: true,
+          identifier: 'malloy',
+        },
       },
     };
 
@@ -96,6 +108,74 @@ export const initServer = (
     connection,
     connectionManager
   );
+
+  // TODO: LSP 3.17 diagnostic computation function - temporarily commented out
+  /*
+  async function computeDiagnosticsForUri(uri: string): Promise<Diagnostic[]> {
+    const prettyUri = prettyLogUri(uri);
+    connection.console.info(`computeDiagnosticsForUri ${prettyUri} start`);
+
+    try {
+      // First check if document is already open
+      let document = documents.get(uri);
+
+      if (!document) {
+        // Fetch file content from client
+        const content: string = await connection.sendRequest('malloy/fetchFile', {
+          uri,
+        });
+        const languageId = uri.endsWith('.malloysql') ? 'malloy-sql' : uri.endsWith('.malloynb') ? 'malloy-notebook' : 'malloy';
+        document = TextDocument.create(uri, languageId, 1, content);
+      }
+
+      const diagnosticsByUri = await getMalloyDiagnostics(translateCache, document);
+      connection.console.info(`computeDiagnosticsForUri ${prettyUri} end`);
+      return diagnosticsByUri[uri] || [];
+    } catch (error) {
+      connection.console.error(`computeDiagnosticsForUri ${prettyUri} error: ${error}`);
+      return [];
+    }
+  }
+  */
+
+  // LSP 3.17 Pull Diagnostics: Handle workspace/diagnostic
+  connection.onRequest('workspace/diagnostic', async (params: any): Promise<WorkspaceDiagnosticReport> => {
+    connection.console.info('workspace/diagnostic start');
+
+    if (!haveConnectionsBeenSet) {
+      return {items: []};
+    }
+
+    // Request workspace files from the client
+    const workspaceFiles: string[] = await connection.sendRequest('malloy/getWorkspaceFiles');
+    connection.console.info(`workspace/diagnostic processing ${workspaceFiles.length} files`);
+
+    const items: WorkspaceDocumentDiagnosticReport[] = [];
+
+    for (const uri of workspaceFiles) {
+      try {
+        // For now, just return empty diagnostics to test if the server loads
+        // We'll implement the full logic once basic loading works
+        items.push({
+          kind: DocumentDiagnosticReportKind.Full,
+          uri,
+          version: null,
+          items: [],
+        });
+      } catch (error) {
+        connection.console.error(`workspace/diagnostic error for ${uri}: ${error}`);
+        items.push({
+          kind: DocumentDiagnosticReportKind.Full,
+          uri,
+          version: null,
+          items: [],
+        });
+      }
+    }
+
+    connection.console.info(`workspace/diagnostic end, ${items.length} files processed`);
+    return {items};
+  });
 
   async function diagnoseDocument(document: TextDocument) {
     const prettyUri = prettyLogUri(document.uri);

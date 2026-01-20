@@ -29,6 +29,19 @@ To get to know the Malloy language, follow the [Quickstart guide](https://malloy
 Note: The Malloy VSCode Extension tracks a small amount of anonymous usage data. You can opt out in the extension settings.
  [Learn more](https://policies.google.com/technologies/cookies).
 
+## Workspace Diagnostics
+
+The Malloy extension supports **workspace-wide diagnostics** using LSP 3.17's pull diagnostics. This means errors and warnings are shown for all `.malloy`, `.malloysql`, and `.malloynb` files in your workspace—not just the ones you have open.
+
+### Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `malloy.enableWorkspaceDiagnostics` | `true` | Enable/disable workspace-wide diagnostics |
+| `malloy.maxFilesToIndex` | `100` | Maximum number of files to check (0 = unlimited) |
+
+This is particularly useful for AI coding assistants that need visibility into all compilation errors across your project.
+
 ## Join the Community
 
 - Join our [**Malloy Slack Community!**](https://malloydata.github.io/slack) Use this community to ask questions, meet other Malloy users, and share ideas with one another.

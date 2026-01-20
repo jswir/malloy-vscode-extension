@@ -367,4 +367,57 @@ export const setupFileMessaging = (
       }
     )
   );
+
+  // LSP 3.17 workspace diagnostics: provide list of workspace files to server
+  context.subscriptions.push(
+    client.onRequest('malloy/getWorkspaceFiles', async () => {
+      const config = vscode.workspace.getConfiguration('malloy');
+      const enableWorkspaceDiagnostics = config.get<boolean>(
+        'enableWorkspaceDiagnostics',
+        true
+      );
+
+      // If workspace diagnostics are disabled, return empty array
+      if (!enableWorkspaceDiagnostics) {
+        malloyLog.appendLine(
+          'malloy/getWorkspaceFiles: Workspace diagnostics disabled'
+        );
+        return [];
+      }
+
+      const maxFiles = config.get<number>('maxFilesToIndex', 100);
+
+      const files = await vscode.workspace.findFiles(
+        '**/*.{malloy,malloysql,malloynb}',
+        '**/node_modules/**'
+      );
+
+      malloyLog.appendLine(
+        `malloy/getWorkspaceFiles: Found ${files.length} files`
+      );
+
+      // Apply file limit if configured
+      let filesToReturn = files;
+      if (maxFiles > 0 && files.length > maxFiles) {
+        // Sort by modification time (most recent first)
+        const filesWithStats = await Promise.all(
+          files.map(async uri => {
+            try {
+              const stat = await vscode.workspace.fs.stat(uri);
+              return {uri, mtime: stat.mtime};
+            } catch {
+              return {uri, mtime: 0};
+            }
+          })
+        );
+        filesWithStats.sort((a, b) => b.mtime - a.mtime);
+        filesToReturn = filesWithStats.slice(0, maxFiles).map(f => f.uri);
+        malloyLog.appendLine(
+          `malloy/getWorkspaceFiles: Limited to ${maxFiles} files`
+        );
+      }
+
+      return filesToReturn.map(f => f.toString());
+    })
+  );
 };
