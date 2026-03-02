@@ -38,12 +38,19 @@ import {BaseLanguageClient} from 'vscode-languageclient';
 import {FetchModelMessage} from '../../common/types/message_types';
 import {noAwait} from '../../util/no_await';
 import {MalloyRendererMessage} from './types';
+import {NotebookFilterManager} from './filter/notebook_filter_manager';
+import type {FilterRendererMessage} from './filter/filter_types';
 
 const NO_QUERY = 'Model has no queries.';
 
 interface MessageEvent {
   readonly editor: vscode.NotebookEditor;
   readonly message: MalloyRendererMessage;
+}
+
+interface FilterMessageEvent {
+  readonly editor: vscode.NotebookEditor;
+  readonly message: FilterRendererMessage;
 }
 
 function getQueryCostStats({queryCostBytes, isEstimate}: QueryCost): string {
@@ -113,8 +120,48 @@ export function activateNotebookController(
     )
   );
 
+  // Create filter manager
+  const filterManager = new NotebookFilterManager(context, worker);
+
+  // Set up filter renderer messaging
+  const filterMessaging = vscode.notebooks.createRendererMessaging(
+    'malloy.notebook-renderer-filter'
+  );
+  filterManager.setMessaging(filterMessaging);
+
   context.subscriptions.push(
-    new MalloyController(context, worker, client, statusBarProvider)
+    filterMessaging.onDidReceiveMessage((event: FilterMessageEvent) => {
+      const {message, editor} = event;
+      const notebookUri = editor.notebook.uri.toString();
+
+      switch (message.type) {
+        case 'filterChanged':
+          noAwait(
+            filterManager.handleFilterChange(
+              notebookUri,
+              message.key,
+              message.selection
+            )
+          );
+          break;
+        case 'clearAll':
+          noAwait(filterManager.handleClearAll(notebookUri));
+          break;
+        case 'ready':
+          // Renderer is ready, could send initial state if needed
+          break;
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    new MalloyController(
+      context,
+      worker,
+      client,
+      statusBarProvider,
+      filterManager
+    )
   );
 
   const relayEvent = (event: MessageEvent) => {
@@ -131,6 +178,15 @@ export function activateNotebookController(
       .createRendererMessaging('malloy.notebook-renderer-schema')
       .onDidReceiveMessage(relayEvent)
   );
+
+  // Clean up filter state when notebooks are closed
+  context.subscriptions.push(
+    vscode.workspace.onDidCloseNotebookDocument(notebook => {
+      filterManager.disposeNotebook(notebook.uri.toString());
+    })
+  );
+
+  context.subscriptions.push(filterManager);
 }
 
 class MalloyController {
@@ -146,7 +202,8 @@ class MalloyController {
     private context: vscode.ExtensionContext,
     private worker: WorkerConnection,
     private client: BaseLanguageClient,
-    private statusBarProvider: MalloyNotebookCellStatusBarItemProvider
+    private statusBarProvider: MalloyNotebookCellStatusBarItemProvider,
+    private filterManager: NotebookFilterManager
   ) {
     this._controller = vscode.notebooks.createNotebookController(
       this.controllerId,
@@ -157,6 +214,9 @@ class MalloyController {
     this._controller.supportedLanguages = this.supportedLanguages;
     this._controller.supportsExecutionOrder = true;
     this._controller.executeHandler = this._execute.bind(this);
+
+    // Give filter manager access to the controller for re-execution
+    this.filterManager.setController(this._controller);
   }
 
   private async _execute(
@@ -170,7 +230,7 @@ class MalloyController {
   }
 
   private async _doExecution(
-    _notebook: vscode.NotebookDocument,
+    notebook: vscode.NotebookDocument,
     cell: vscode.NotebookCell
   ): Promise<void> {
     const {document} = cell;
@@ -243,6 +303,30 @@ class MalloyController {
         }
       }
 
+      // Check if this cell has ##(filters) annotation and initialize filter UI
+      const cellText = cell.document.getText();
+      if (NotebookFilterManager.cellHasFilters(cellText)) {
+        try {
+          const filterData = await this.filterManager.initializeFilters(
+            notebook,
+            cell,
+            execution.token
+          );
+          if (filterData) {
+            output.push(
+              new vscode.NotebookCellOutput([
+                vscode.NotebookCellOutputItem.json(
+                  filterData,
+                  'x-application/malloy-filters'
+                ),
+              ])
+            );
+          }
+        } catch (filterError) {
+          console.error('Error initializing filters:', filterError);
+        }
+      }
+
       noAwait(execution.replaceOutput(output));
       execution.end(true, Date.now());
     } catch (error) {
@@ -263,16 +347,41 @@ class MalloyController {
           'malloy/fetchModel',
           request
         );
-        noAwait(
-          execution.replaceOutput([
-            new vscode.NotebookCellOutput([
-              vscode.NotebookCellOutputItem.json(
-                model,
-                'x-application/malloy-schema'
-              ),
-            ]),
-          ])
-        );
+
+        const outputItems: vscode.NotebookCellOutput[] = [
+          new vscode.NotebookCellOutput([
+            vscode.NotebookCellOutputItem.json(
+              model,
+              'x-application/malloy-schema'
+            ),
+          ]),
+        ];
+
+        // Also check for filters on source-definition cells (no query)
+        const cellText = cell.document.getText();
+        if (NotebookFilterManager.cellHasFilters(cellText)) {
+          try {
+            const filterData = await this.filterManager.initializeFilters(
+              notebook,
+              cell,
+              execution.token
+            );
+            if (filterData) {
+              outputItems.push(
+                new vscode.NotebookCellOutput([
+                  vscode.NotebookCellOutputItem.json(
+                    filterData,
+                    'x-application/malloy-filters'
+                  ),
+                ])
+              );
+            }
+          } catch (filterError) {
+            console.error('Error initializing filters:', filterError);
+          }
+        }
+
+        noAwait(execution.replaceOutput(outputItems));
         execution.end(true, Date.now());
       } else {
         noAwait(

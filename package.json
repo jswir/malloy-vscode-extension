@@ -542,10 +542,25 @@
           "x-application/malloy-schema"
         ],
         "requiresMessaging": "optional"
+      },
+      {
+        "displayName": "Malloy Filters",
+        "entrypoint": "./dist/filter_entry.js",
+        "id": "malloy.notebook-renderer-filter",
+        "mimeTypes": [
+          "x-application/malloy-filters"
+        ],
+        "requiresMessaging": "always"
       }
     ]
   },
   "dependencies": {
+    "@malloydata/notebook-filters": "file:../publisher/packages/notebook-filters",
+    "@mui/material": "^6.4.0",
+    "@mui/x-date-pickers": "^7.24.0",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.0",
+    "dayjs": "^1.11.13",
     "@malloydata/db-bigquery": "0.0.349",
     "@malloydata/db-duckdb": "0.0.349",
     "@malloydata/db-mysql": "0.0.349",
