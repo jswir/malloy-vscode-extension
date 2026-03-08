@@ -183,4 +183,6 @@ export interface ConnectionManager {
   ): Promise<TestableConnection>;
   getConnectionLookup(fileURL: URL): LookupConnection<Connection>;
   setConnectionsConfig(connectionsConfig: ConnectionConfig[]): void;
+  getCurrentRowLimit(): number | undefined;
+  setCurrentRowLimit(rowLimit: number): void;
 }

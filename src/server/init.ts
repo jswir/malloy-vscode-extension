@@ -252,10 +252,13 @@ export const initServer = (
 
   connection.onDidChangeConfiguration(change => {
     onDidChangeConfiguration?.(change);
-    connectionManager.setConnectionsConfig(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (change?.settings as any)?.malloy?.connections ?? []
-    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const settings = (change?.settings as any)?.malloy;
+    connectionManager.setConnectionsConfig(settings?.connections ?? []);
+    const rowLimit = settings?.rowLimit;
+    if (typeof rowLimit === 'number') {
+      connectionManager.setCurrentRowLimit(rowLimit);
+    }
     haveConnectionsBeenSet = true;
     translateCache.deleteAllModels();
     documents.all().forEach(debouncedDiagnoseDocument);

@@ -366,8 +366,9 @@ export const runQuery = async (
     const preparedQuery = await runnable.getPreparedQuery();
     const {preparedResult} = preparedQuery;
 
-    // Set the row limit to the limit provided in the final stage of the query, if present
-    const rowLimit = preparedResult.resultExplore.limit;
+    const rowLimit =
+      preparedResult.resultExplore.limit ??
+      connectionManager.getCurrentRowLimit();
     const dialect = preparedQuery.dialect;
 
     const sql = await runnable.getSQL();
