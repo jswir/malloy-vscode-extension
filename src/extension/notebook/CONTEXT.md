@@ -4,7 +4,7 @@ Support for `.malloynb` files — interactive notebooks combining Malloy code, S
 
 ## Key Concepts
 
-- Notebooks use a custom JSON format (not Jupyter `.ipynb`)
+- Notebooks use a `>>>TYPE` delimited text format (not Jupyter `.ipynb`)
 - Each cell can be Malloy code or markdown
 - Cells are **chained**: each cell's model extends the previous cell's compiled model
 - Per-cell `malloy:` metadata can override connection settings
@@ -23,7 +23,7 @@ Support for `.malloynb` files — interactive notebooks combining Malloy code, S
 ### `malloy_serializer.ts`
 `MalloyNotebookSerializer` — implements `NotebookSerializer`:
 - Serializes/deserializes `.malloynb` files
-- Custom JSON format with cell array, metadata, outputs
+- `>>>TYPE` delimited text format with cell separators, metadata, outputs
 
 ### `types.ts`
 Notebook-specific type definitions.

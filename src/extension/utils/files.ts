@@ -23,7 +23,6 @@
 
 import * as vscode from 'vscode';
 import {CellData, Cell, FileHandler} from '../../common/types/file_handler';
-import {MalloySQLParser} from '@malloydata/malloy-sql';
 
 /**
  * Transforms vscode-notebook-cell: Uris to file: or vscode-vfs: URLS
@@ -106,42 +105,55 @@ export async function fetchBinaryFile(uriString: string): Promise<Uint8Array> {
 }
 
 /**
- * Counts the number of lines in a string.
- * Returns 0 for empty/undefined strings.
+ * Computes line offsets for each code cell from the live NotebookDocument,
+ * mirroring the serializer's output format so offsets stay correct even
+ * when the notebook has unsaved edits.
+ *
+ * Returns a map from code-cell index to the 0-based line where that
+ * cell's content starts in the serialized file.
  */
-function countLines(text: string | undefined): number {
-  if (!text) return 0;
-  // Count newlines + 1 for the content, but handle empty string
-  const lines = text.split('\n');
-  return lines.length;
-}
-
-/**
- * Computes line offsets for each cell by parsing the raw notebook content.
- * Returns a map from cell index to line offset.
- */
-function computeCellLineOffsets(notebookContent: string): Map<number, number> {
+function computeLiveLineOffsets(
+  notebook: vscode.NotebookDocument
+): Map<number, number> {
   const offsets = new Map<number, number>();
+  const metadata = notebook.metadata as {initialComments?: string} | undefined;
 
-  try {
-    // Parse the notebook content to understand its structure
-    const parsed = MalloySQLParser.parse(notebookContent);
+  let currentLine = 0;
+  let endsWithNewline = true;
+  let hasContent = false;
 
-    // Start with initial comments line count
-    let lineOffset = countLines(parsed.initialComments);
+  const initialComments = metadata?.initialComments;
+  if (initialComments && initialComments.length > 0) {
+    const newlineCount = (initialComments.match(/\n/g) || []).length;
+    currentLine += newlineCount;
+    endsWithNewline = initialComments.endsWith('\n');
+    hasContent = true;
+  }
 
-    // For each statement (cell), compute its starting line
-    for (let i = 0; i < parsed.statements.length; i++) {
-      const statement = parsed.statements[i];
-      // Add 1 for the >>>type delimiter line
-      lineOffset += 1;
-      // Store the offset for this cell (where the cell content starts)
-      offsets.set(i, lineOffset);
-      // Add the cell content's line count for the next cell
-      lineOffset += countLines(statement.text);
+  let codeCellIndex = 0;
+  for (const cell of notebook.getCells()) {
+    if (hasContent && !endsWithNewline) {
+      currentLine += 1;
     }
-  } catch (error) {
-    console.error('Failed to compute cell line offsets:', error);
+
+    // >>>TYPE\n separator occupies one line; content starts on the next
+    currentLine += 1;
+
+    if (cell.kind === vscode.NotebookCellKind.Code) {
+      offsets.set(codeCellIndex, currentLine);
+      codeCellIndex++;
+    }
+
+    const value = cell.document.getText();
+    if (value) {
+      const newlineCount = (value.match(/\n/g) || []).length;
+      currentLine += newlineCount;
+      endsWithNewline = value.endsWith('\n');
+    } else {
+      currentLine += 1;
+      endsWithNewline = true;
+    }
+    hasContent = true;
   }
 
   return offsets;
@@ -166,23 +178,8 @@ export async function fetchCellData(uriString: string): Promise<CellData> {
       }
     }
 
-    // Try to read the raw notebook content to compute accurate line offsets
-    let lineOffsets = new Map<number, number>();
-    try {
-      // Read the notebook file content
-      const notebookUri = fixNotebookUri(notebook.uri);
-      const contentBytes = await vscode.workspace.fs.readFile(notebookUri);
-      const notebookContent = new TextDecoder('utf-8').decode(contentBytes);
+    const lineOffsets = computeLiveLineOffsets(notebook);
 
-      // Only parse if it's not JSON format (JSON format notebooks don't have line-based structure)
-      if (!notebookContent.startsWith('[')) {
-        lineOffsets = computeCellLineOffsets(notebookContent);
-      }
-    } catch (error) {
-      console.error('Failed to read notebook for line offsets:', error);
-    }
-
-    // Track code cell index (for mapping to parsed statements)
     let codeCellIndex = 0;
 
     for (const cell of notebook.getCells()) {

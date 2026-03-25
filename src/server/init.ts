@@ -122,23 +122,28 @@ export const initServer = (
       );
       const diagnostics = await getMalloyDiagnostics(translateCache, document);
 
-      // Only send diagnostics if the document hasn't changed since this request started
+      // Only send diagnostics if the target document hasn't changed since this request started
       for (const uri in diagnostics) {
         const versionAtRequest = versionsAtRequestTime.get(uri);
+        const currentVersion = documents.get(uri)?.version;
         if (
           versionAtRequest === undefined ||
-          versionAtRequest === document.version
+          currentVersion === undefined ||
+          versionAtRequest === currentVersion
         ) {
           await connection.sendDiagnostics({
             uri,
             diagnostics: diagnostics[uri],
-            version: documents.get(uri)?.version,
+            version: currentVersion,
           });
         }
       }
 
-      // Also publish notebook cell diagnostics to the notebook file URI
-      // This enables external tools (like Cursor) that query by file URI to see them
+      // Also publish notebook cell diagnostics to the notebook file URI.
+      // This enables external tools (like Cursor) that query by file URI to see them.
+      // Version is intentionally omitted: the notebook file:// URI has no tracked
+      // TextDocument in the server's document collection, and per the LSP spec a
+      // missing version means "always apply."
       try {
         const notebookDiagnostics = await aggregateNotebookDiagnostics(
           diagnostics,

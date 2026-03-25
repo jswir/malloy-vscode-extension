@@ -34,7 +34,7 @@ Four config sources (highest priority first):
 
 - `.malloy` — Malloy model/query files
 - `.malloysql` — Malloy-SQL hybrid files
-- `.malloynb` — Malloy notebooks (JSON-based, custom serialization)
+- `.malloynb` — Malloy notebooks (`>>>TYPE` delimited text, custom serialization)
 
 ## Key Entry Points
 
